@@ -1,0 +1,20 @@
+<CMSearchDescription version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+    <searchID>C6022BA1-BB30-0001-B811-95A517711717</searchID>
+    <trackIDList>
+        <trackID>101</trackID>
+    </trackIDList>
+    <timeSpanList>
+        <timeSpan>
+            <startTime>2014-06-18T16:00:00Z</startTime>
+            <endTime>2014-06-22T15:59:59Z</endTime>
+        </timeSpan>
+    </timeSpanList>
+    <contentTypeList>
+        <contentType>video</contentType>
+    </contentTypeList>
+    <maxResults>40</maxResults>
+    <searchResultPostion>0</searchResultPostion>
+    <metadataList>
+        <metadataDescriptor>//metadata.psia.org/VideoMotion</metadataDescriptor>
+    </metadataList>
+</CMSearchDescription>

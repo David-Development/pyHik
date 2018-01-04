@@ -505,3 +505,94 @@ class HikCamera(object):
         except KeyError:
             _LOGGING.debug('Error updating attributes for: (%s, %s)',
                            event, channel)
+
+    
+    # private method
+    def searchRecording(self, start_time, end_time, limit=200):
+        url = '%s/ISAPI/ContentMgmt/search' % self.root_url
+
+        ET.register_namespace("", "http://www.isapi.org/ver20/XMLSchema")
+        tree = ET.parse('./pyHik/pyhik/XmlTemplateSearch.xml').getroot()
+
+        tree.find('{http://www.isapi.org/ver20/XMLSchema}searchID').text = str(uuid.uuid4())
+        tree.find('{http://www.isapi.org/ver20/XMLSchema}trackIDList/{http://www.isapi.org/ver20/XMLSchema}trackID').text = '101'
+        tree.find('{http://www.isapi.org/ver20/XMLSchema}timeSpanList/{http://www.isapi.org/ver20/XMLSchema}timeSpan/{http://www.isapi.org/ver20/XMLSchema}startTime').text = start_time
+        tree.find('{http://www.isapi.org/ver20/XMLSchema}timeSpanList/{http://www.isapi.org/ver20/XMLSchema}timeSpan/{http://www.isapi.org/ver20/XMLSchema}endTime').text = end_time
+        tree.find('{http://www.isapi.org/ver20/XMLSchema}maxResults').text = str(limit)
+        
+        xml = ET.tostring(tree)
+
+        return self.hik_request.post(url, data=xml).text
+    
+    '''
+    Get a list of all recordings between the two dates.
+    start_time = '2018-01-03T00:00:00Z'
+    end_time   = '2018-01-03T23:59:59Z'
+
+    Each element in the returned list contains the following attributes:
+    startTime, endTime, codec, url
+    '''
+    def getRecordingList(self, start_time, end_time):
+        chunk_size = 200
+
+        ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
+        #root = ET.parse('./search.xml').getroot()
+        
+        recordings_data = []
+        while True:
+            xml_data = self.searchRecording(start_time, end_time)
+            #print(xml_data)
+            root = ET.fromstring(xml_data)
+            recordings_data_new = root.findall('{http://www.hikvision.com/ver20/XMLSchema}matchList/{http://www.hikvision.com/ver20/XMLSchema}searchMatchItem')
+            recordings_data.extend(recordings_data_new)
+
+            recordings_data_new_length = len(recordings_data_new) 
+            print("Fetched: {}".format(recordings_data_new_length))
+            if recordings_data_new_length < chunk_size:
+                break 
+            else:
+                last_end_time = recordings_data_new[-1].find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
+                print("Changing current start time: {} to new start time: {}".format(start_time, last_end_time))
+                start_time = last_end_time
+                #start_time = endTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
+            
+        print("Fetched total: {}".format(len(recordings_data)))
+
+        recordings = []
+
+        for recording in recordings_data:
+            startTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}startTime').text
+            endTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
+            codec = recording.find('{http://www.hikvision.com/ver20/XMLSchema}mediaSegmentDescriptor/{http://www.hikvision.com/ver20/XMLSchema}codecType').text
+            url = recording.find('{http://www.hikvision.com/ver20/XMLSchema}mediaSegmentDescriptor/{http://www.hikvision.com/ver20/XMLSchema}playbackURI').text
+
+            recordings.append({
+                'startTime': startTime,
+                'endTime': endTime,
+                'codec': codec,
+                'url': url
+            })
+        
+        return recordings
+    
+    '''
+    Download a video recording
+    playbackURI = Url to download the video from
+    filename    = Where to store the file on the filesystem
+    '''
+    def downloadVideo(self, playbackURI, filename):
+        url = '%s/ISAPI/ContentMgmt/download' % self.root_url
+
+        tree = ET.parse('./pyHik/pyhik/XmlTemplateDownload.xml').getroot()
+        tree.find('playbackURI').text=playbackURI
+        xml = ET.tostring(tree)
+
+        r = self.hik_request.get(url, data=xml)
+
+        if r.status_code == 200:
+            with open(filename, 'wb') as f:  
+                f.write(r.content)
+
+        # Retrieve HTTP meta-data
+        _LOGGING.debug('%s Status Code: %s, ContentType: %s Encoding: %s',self.name, r.status_code, r.headers['content-type'], r.encoding)
+        
