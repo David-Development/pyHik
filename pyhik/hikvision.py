@@ -35,6 +35,7 @@ except ImportError:
 from pyhik.watchdog import Watchdog
 from pyhik.constants import (
     DEFAULT_PORT, DEFAULT_HEADERS, XML_NAMESPACE, SENSOR_MAP,
+    DEFAULT_PORT, DEFAULT_HEADERS, XML_NAMESPACE, XML_NAMESPACE_ISAPI, SENSOR_MAP,
     CAM_DEVICE, NVR_DEVICE, __version__)
 
 _LOGGING = logging.getLogger(__name__)
@@ -140,9 +141,27 @@ class HikCamera(object):
                                callback, sensor)
                 callback(msg)
 
-    def element_query(self, element):
+    '''
+    Pass in the path either as a string like
+        elements = 'EventTrigger'
+    or as an array like:
+        elements = ['some/', 'path/', 'here']
+    '''
+    def element_query(self, elements, namespace=None):
         """Build tree query for a given element."""
-        return '{%s}%s' % (self.namespace, element)
+        if namespace is None:
+            namespace = self.namespace
+
+        # if only one element is passed in as string wrap it as a list
+        if not isinstance(elements, list):
+            elements = [elements]
+
+        result = ''
+        for element in elements:
+            result += '{%s}%s' % (namespace, element)
+        
+        return result
+        
 
     def initialize(self):
         """Initialize deviceInfo and available events."""
@@ -513,14 +532,14 @@ class HikCamera(object):
     def searchRecording(self, start_time, end_time, limit=200):
         url = '%s/ISAPI/ContentMgmt/search' % self.root_url
 
-        ET.register_namespace("", "http://www.isapi.org/ver20/XMLSchema")
+        ET.register_namespace("", XML_NAMESPACE_ISAPI)
         tree = ET.parse('./pyHik/pyhik/XmlTemplateSearch.xml').getroot()
 
-        tree.find('{http://www.isapi.org/ver20/XMLSchema}searchID').text = str(uuid.uuid4())
-        tree.find('{http://www.isapi.org/ver20/XMLSchema}trackIDList/{http://www.isapi.org/ver20/XMLSchema}trackID').text = '101'
-        tree.find('{http://www.isapi.org/ver20/XMLSchema}timeSpanList/{http://www.isapi.org/ver20/XMLSchema}timeSpan/{http://www.isapi.org/ver20/XMLSchema}startTime').text = start_time
-        tree.find('{http://www.isapi.org/ver20/XMLSchema}timeSpanList/{http://www.isapi.org/ver20/XMLSchema}timeSpan/{http://www.isapi.org/ver20/XMLSchema}endTime').text = end_time
-        tree.find('{http://www.isapi.org/ver20/XMLSchema}maxResults').text = str(limit)
+        tree.find(self.element_query(['searchID'], XML_NAMESPACE_ISAPI)).text = str(uuid.uuid4())
+        tree.find(self.element_query(['trackIDList/', 'trackID'], XML_NAMESPACE_ISAPI)).text = '101'
+        tree.find(self.element_query(['timeSpanList/', 'timeSpan/', 'startTime'], XML_NAMESPACE_ISAPI)).text = start_time
+        tree.find(self.element_query(['timeSpanList/', 'timeSpan/', 'endTime'], XML_NAMESPACE_ISAPI)).text = end_time
+        tree.find(self.element_query(['maxResults'], XML_NAMESPACE_ISAPI)).text = str(limit)
         
         xml = ET.tostring(tree)
 
@@ -537,7 +556,7 @@ class HikCamera(object):
     def getRecordingList(self, start_time, end_time):
         chunk_size = 200
 
-        ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
+        ET.register_namespace("", XML_NAMESPACE)
         #root = ET.parse('./search.xml').getroot()
         
         recordings_data = []
@@ -545,7 +564,7 @@ class HikCamera(object):
             xml_data = self.searchRecording(start_time, end_time)
             #print(xml_data)
             root = ET.fromstring(xml_data)
-            recordings_data_new = root.findall('{http://www.hikvision.com/ver20/XMLSchema}matchList/{http://www.hikvision.com/ver20/XMLSchema}searchMatchItem')
+            recordings_data_new = root.findall(self.element_query(['matchList/', 'searchMatchItem'], XML_NAMESPACE))
             recordings_data.extend(recordings_data_new)
 
             recordings_data_new_length = len(recordings_data_new) 
@@ -553,20 +572,19 @@ class HikCamera(object):
             if recordings_data_new_length < chunk_size:
                 break 
             else:
-                last_end_time = recordings_data_new[-1].find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
+                last_end_time = recordings_data_new[-1].find(self.element_query(['timeSpan/', 'endTime'])).text
                 print("Changing current start time: {} to new start time: {}".format(start_time, last_end_time))
                 start_time = last_end_time
-                #start_time = endTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
             
         print("Fetched total: {}".format(len(recordings_data)))
 
         recordings = []
 
         for recording in recordings_data:
-            startTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}startTime').text
-            endTime = recording.find('{http://www.hikvision.com/ver20/XMLSchema}timeSpan/{http://www.hikvision.com/ver20/XMLSchema}endTime').text
-            codec = recording.find('{http://www.hikvision.com/ver20/XMLSchema}mediaSegmentDescriptor/{http://www.hikvision.com/ver20/XMLSchema}codecType').text
-            url = recording.find('{http://www.hikvision.com/ver20/XMLSchema}mediaSegmentDescriptor/{http://www.hikvision.com/ver20/XMLSchema}playbackURI').text
+            startTime = recording.find(self.element_query(['timeSpan/', 'startTime'])).text
+            endTime   = recording.find(self.element_query(['timeSpan/', 'endTime'])).text
+            codec     = recording.find(self.element_query(['mediaSegmentDescriptor/', 'codecType'])).text
+            url       = recording.find(self.element_query(['mediaSegmentDescriptor/', 'playbackURI'])).text
 
             recordings.append({
                 'startTime': startTime,

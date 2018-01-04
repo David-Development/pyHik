@@ -15,6 +15,7 @@ __version__ = '{}.{}.{}'.format(
 DEFAULT_PORT = 80
 XML_ENCODING = 'UTF-8'
 XML_NAMESPACE = 'http://www.hikvision.com/ver20/XMLSchema'
+XML_NAMESPACE_ISAPI = 'http://www.isapi.org/ver20/XMLSchema'
 
 DEFAULT_HEADERS = {
     'Content-Type': "application/xml; charset='UTF-8'",
