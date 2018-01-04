@@ -23,6 +23,7 @@ except ImportError:
 
 import threading
 import requests
+from requests.auth import HTTPDigestAuth
 
 # Make pydispatcher optional to support legacy implentations
 # New usage should implement the event_callback
@@ -62,7 +63,7 @@ class HikCamera(object):
     """Creates a new Hikvision api device."""
 
     def __init__(self, host=None, port=DEFAULT_PORT,
-                 usr=None, pwd=None):
+                 usr=None, pwd=None, useDigestAuth=False):
         """Initialize device."""
 
         _LOGGING.debug("Initializing new hikvision device at: %s", host)
@@ -88,7 +89,8 @@ class HikCamera(object):
 
         # Build requests session for main thread calls
         self.hik_request = requests.Session()
-        self.hik_request.auth = (usr, pwd)
+        self.hik_request.auth = HTTPDigestAuth(usr, pwd) if useDigestAuth else (usr, pwd)
+
         self.hik_request.timeout = 5
         self.hik_request.headers.update(DEFAULT_HEADERS)
 
