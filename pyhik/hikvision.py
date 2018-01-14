@@ -142,13 +142,16 @@ class HikCamera(object):
                 callback(msg)
 
     '''
-    Pass in the path either as a string like
-        elements = 'EventTrigger'
-    or as an array like:
-        elements = ['some/', 'path/', 'here']
+    
     '''
     def element_query(self, elements, namespace=None):
-        """Build tree query for a given element."""
+        """
+            Build tree query for a given element.
+            Pass in the path either as a string like
+                elements = 'EventTrigger'
+            or as an array like:
+                elements = ['some/', 'path/', 'here']
+        """
         if namespace is None:
             namespace = self.namespace
 
