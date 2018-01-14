@@ -42,7 +42,7 @@ _LOGGING = logging.getLogger(__name__)
 
 # Hide nuisance requests logging
 logging.getLogger('requests.packages.urllib3').setLevel(logging.CRITICAL)
-
+logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
 
 """
 Things still to do:
