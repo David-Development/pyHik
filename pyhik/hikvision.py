@@ -2,7 +2,7 @@
 pyhik.hikvision
 ~~~~~~~~~~~~~~~~~~~~
 Provides api for Hikvision events
-Copyright (c) 2016-2017 John Mihalic <https://github.com/mezz64>
+Copyright (c) 2016-2018 John Mihalic <https://github.com/mezz64>
 Licensed under the MIT license.
 
 Based on the following api documentation:
@@ -41,8 +41,11 @@ from pyhik.constants import (
 _LOGGING = logging.getLogger(__name__)
 
 # Hide nuisance requests logging
+logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('requests.packages.urllib3').setLevel(logging.CRITICAL)
 logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
+
+
 
 """
 Things still to do:
@@ -58,13 +61,17 @@ report IR status and allow
 
 """
 
+# The name 'id' should always be last
+CHANNEL_NAMES = ['dynVideoInputChannelID', 'videoInputChannelID',
+                 'dynInputIOPortID', 'inputIOPortID',
+                 'id']
 
 # pylint: disable=too-many-instance-attributes
 class HikCamera(object):
     """Creates a new Hikvision api device."""
 
     def __init__(self, host=None, port=DEFAULT_PORT,
-                 usr=None, pwd=None, useDigestAuth=False):
+                 usr=None, pwd=None):
         """Initialize device."""
 
         _LOGGING.debug("pyHik %s initializing new hikvision device at: %s",
@@ -90,9 +97,10 @@ class HikCamera(object):
         self.root_url = '{}:{}'.format(host, port)
 
         # Build requests session for main thread calls
+        # Default to basic authentication. It will change to digest inside
+        # get_device_info if basic fails
         self.hik_request = requests.Session()
-        self.hik_request.auth = HTTPDigestAuth(usr, pwd) if useDigestAuth else (usr, pwd)
-
+        self.hik_request.auth = (usr, pwd)
         self.hik_request.timeout = 5
         self.hik_request.headers.update(DEFAULT_HEADERS)
 
@@ -216,7 +224,7 @@ class HikCamera(object):
 
         try:
             response = self.hik_request.get(url)
-            if response.status_code == 404:
+            if response.status_code == requests.codes.not_found:
                 # Try alternate URL for triggers
                 _LOGGING.debug('Using alternate triggers URL.')
                 url = '%s/Event/triggers' % self.root_url
@@ -249,27 +257,24 @@ class HikCamera(object):
                     break
                 etnotify = eventtrigger.find(
                     self.element_query('EventTriggerNotificationList'))
-                etchannel = eventtrigger.find(
-                    self.element_query('dynVideoInputChannelID'))
-                if etchannel is None:
-                    # Try alternate channel field
-                    etchannel = eventtrigger.find(
-                        self.element_query('videoInputChannelID'))
-                if etchannel is None:
-                    # Try 2nd alternate channel field
-                    try:
-                        etchannel = eventtrigger.find(
-                            self.element_query('id'))
-                        # Need to make sure this is actually a number
-                        int(etchannel.text)
-                    except ValueError:
-                        # Field must not be an integer
-                        etchannel = None
 
-                if etchannel is not None:
-                    if int(etchannel.text) > 1:
-                        # Must be an nvr
-                        nvrflag = True
+                etchannel = None
+                etchannel_num = 0
+
+                for node_name in CHANNEL_NAMES:
+                    etchannel = eventtrigger.find(
+                        self.element_query(node_name))
+                    if etchannel is not None:
+                        try:
+                            # Need to make sure this is actually a number
+                            etchannel_num = int(etchannel.text)
+                            if etchannel_num > 1:
+                                # Must be an nvr
+                                nvrflag = True
+                            break
+                        except ValueError:
+                            # Field must not be an integer
+                            pass
 
                 if etnotify:
                     for notifytrigger in etnotify:
@@ -280,11 +285,8 @@ class HikCamera(object):
                             If we got this far we found an event that we want
                             to track.
                             """
-                            if etchannel is not None:
-                                events.setdefault(ettype.text, []) \
-                                    .append(int(etchannel.text))
-                            else:
-                                events.setdefault(ettype.text, []).append(0)
+                            events.setdefault(ettype.text, []) \
+                                .append(etchannel_num)
 
         except (AttributeError, ET.ParseError) as err:
             _LOGGING.error(
@@ -306,21 +308,42 @@ class HikCamera(object):
         """Parse deviceInfo into dictionary."""
         device_info = {}
         url = '%s/ISAPI/System/deviceInfo' % self.root_url
+        using_digest = False
 
         try:
+            print("Trying to connect!!")
             response = self.hik_request.get(url)
-            if response.status_code == 404:
+            if response.status_code == requests.codes.unauthorized:
+                print("Basic authentication failed. Using digest 1")
+                _LOGGING.debug('Basic authentication failed. Using digest.')
+                self.hik_request.auth = HTTPDigestAuth(self.usr, self.pwd)
+                using_digest = True
+                response = self.hik_request.get(url)
+
+            if response.status_code == requests.codes.not_found:
                 # Try alternate URL for deviceInfo
                 _LOGGING.debug('Using alternate deviceInfo URL.')
                 url = '%s/System/deviceInfo' % self.root_url
                 response = self.hik_request.get(url)
+                # Seems to be difference between camera and nvr, they can't seem to
+                # agree if they should 404 or 401 first
+                if not using_digest and response.status_code == requests.codes.unauthorized:
+                    print("Basic authentication failed. Using digest 2")
+                    _LOGGING.debug('Basic authentication failed. Using digest.')
+                    self.hik_request.auth = HTTPDigestAuth(self.usr, self.pwd)
+                    using_digest = True
+                    response = self.hik_request.get(url)
 
         except requests.exceptions.RequestException as err:
             _LOGGING.error('Unable to fetch deviceInfo, error: %s', err)
             return None
 
-        if response.status_code != 200:
-            # If we didn't recieve 200, abort
+        if response.status_code == requests.codes.unauthorized:
+            _LOGGING.error('Authentication failed')
+            return None
+
+        if response.status_code != requests.codes.ok:
+            # If we didn't receive 200, abort
             _LOGGING.debug('Unable to fetch device info.')
             return None
 
@@ -375,12 +398,12 @@ class HikCamera(object):
 
             try:
                 stream = self.hik_request.get(url, stream=True)
-                if stream.status_code == 404:
+                if stream.status_code == requests.codes.not_found:
                     # Try alternate URL for stream
                     url = '%s/Event/notification/alertStream' % self.root_url
                     stream = self.hik_request.get(url, stream=True)
 
-                if stream.status_code != 200:
+                if stream.status_code != requests.codes.ok:
                     raise ValueError('Connection unsucessful.')
                 else:
                     _LOGGING.debug('%s Connection Successful.', self.name)
