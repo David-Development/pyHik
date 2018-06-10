@@ -645,8 +645,7 @@ class HikCamera(object):
         if r.status_code == 200:
             with open(filename, 'wb') as f:
                 f.write(r.content)
-        elif 'content-type' in r.headers and
-                r.headers['content-type'] == 'ContentType: application/xml':
+        elif 'content-type' in r.headers and r.headers['content-type'] == 'ContentType: application/xml':
             print("Error while downloading video files!")
             print(r.content)
 
