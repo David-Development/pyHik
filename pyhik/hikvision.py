@@ -15,6 +15,7 @@ import time
 import datetime
 import logging
 import uuid
+import sys
 
 try:
     import xml.etree.cElementTree as ET
@@ -150,7 +151,7 @@ class HikCamera(object):
                 callback(msg)
 
     '''
-    
+
     '''
     def element_query(self, elements, namespace=None):
         """
@@ -170,9 +171,9 @@ class HikCamera(object):
         result = ''
         for element in elements:
             result += '{%s}%s' % (namespace, element)
-        
+
         return result
-        
+
 
     def initialize(self):
         """Initialize deviceInfo and available events."""
@@ -424,9 +425,15 @@ class HikCamera(object):
                             parse_string += str_line
                             start_event = False
                             if parse_string:
-                                tree = ET.fromstring(parse_string)
-                                self.process_stream(tree)
-                                self.update_stale()
+                                try:
+                                    tree = ET.fromstring(parse_string)
+                                    self.process_stream(tree)
+                                    self.update_stale()
+                                except ET.ParseError as e:
+                                    sys.stderr.write(parse_string)
+                                    sys.stderr.write("\n")
+                                    sys.stderr.write(e)
+                                    sys.stderr.flush()
                                 parse_string = ""
                         else:
                             if start_event:
@@ -553,7 +560,7 @@ class HikCamera(object):
             _LOGGING.debug('Error updating attributes for: (%s, %s)',
                            event, channel)
 
-    
+
     # private method
     def searchRecording(self, start_time, end_time, limit=200):
         url = '%s/ISAPI/ContentMgmt/search' % self.root_url
@@ -566,11 +573,11 @@ class HikCamera(object):
         tree.find(self.element_query(['timeSpanList/', 'timeSpan/', 'startTime'], XML_NAMESPACE_ISAPI)).text = start_time
         tree.find(self.element_query(['timeSpanList/', 'timeSpan/', 'endTime'], XML_NAMESPACE_ISAPI)).text = end_time
         tree.find(self.element_query(['maxResults'], XML_NAMESPACE_ISAPI)).text = str(limit)
-        
+
         xml = ET.tostring(tree)
 
         return self.hik_request.post(url, data=xml).text
-    
+
     '''
     Get a list of all recordings between the two dates.
     start_time = '2018-01-03T00:00:00Z'
@@ -584,7 +591,7 @@ class HikCamera(object):
 
         ET.register_namespace("", XML_NAMESPACE)
         #root = ET.parse('./search.xml').getroot()
-        
+
         recordings_data = []
         while True:
             xml_data = self.searchRecording(start_time, end_time)
@@ -593,15 +600,15 @@ class HikCamera(object):
             recordings_data_new = root.findall(self.element_query(['matchList/', 'searchMatchItem'], XML_NAMESPACE))
             recordings_data.extend(recordings_data_new)
 
-            recordings_data_new_length = len(recordings_data_new) 
+            recordings_data_new_length = len(recordings_data_new)
             print("Fetched: {}".format(recordings_data_new_length))
             if recordings_data_new_length < chunk_size:
-                break 
+                break
             else:
                 last_end_time = recordings_data_new[-1].find(self.element_query(['timeSpan/', 'endTime'])).text
                 print("Changing current start time: {} to new start time: {}".format(start_time, last_end_time))
                 start_time = last_end_time
-            
+
         print("Fetched total: {}".format(len(recordings_data)))
 
         recordings = []
@@ -618,9 +625,9 @@ class HikCamera(object):
                 'codec': codec,
                 'url': url
             })
-        
+
         return recordings
-    
+
     '''
     Download a video recording
     playbackURI = Url to download the video from
@@ -636,9 +643,12 @@ class HikCamera(object):
         r = self.hik_request.get(url, data=xml)
 
         if r.status_code == 200:
-            with open(filename, 'wb') as f:  
+            with open(filename, 'wb') as f:
                 f.write(r.content)
+        elif 'content-type' in r.headers and
+                r.headers['content-type'] == 'ContentType: application/xml':
+            print("Error while downloading video files!")
+            print(r.content)
 
         # Retrieve HTTP meta-data
         _LOGGING.debug('%s Status Code: %s, ContentType: %s Encoding: %s',self.name, r.status_code, r.headers['content-type'], r.encoding)
-        
