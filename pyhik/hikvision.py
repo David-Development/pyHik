@@ -432,7 +432,7 @@ class HikCamera(object):
                                 except ET.ParseError as e:
                                     sys.stderr.write(parse_string)
                                     sys.stderr.write("\n")
-                                    sys.stderr.write(e)
+                                    sys.stderr.write(str(e))
                                     sys.stderr.flush()
                                 parse_string = ""
                         else:
